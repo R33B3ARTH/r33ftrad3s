@@ -1,4 +1,3 @@
-from datetime import datetime
 from lightweight_charts.widgets import StreamlitChart
 import numpy as np
 import pandas as pd
@@ -22,7 +21,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.markdown('### R33F3R TRADING TERMINAL // COMPLETE HYBRID SUITE')
+st.markdown('### R33F3R TRADING TERMINAL // LIVE HYBRID SUITE')
 
 # --- MULTI-TAB ARCHITECTURE ---
 tab_chart, tab_matrix, tab_probs = st.tabs([
@@ -41,13 +40,17 @@ def fetch_asset_data(ticker, scale=1.0):
       return None
     if isinstance(df.columns, pd.MultiIndex):
       df.columns = df.columns.get_level_values(0)
+
+    # Ensure index is datetime and normalized to NY time
     df.index = pd.to_datetime(df.index)
     if df.index.tz is None:
       df.index = df.index.tz_localize('UTC')
     df.index = df.index.tz_convert('America/New_York')
 
     for col in ['Open', 'High', 'Low', 'Close']:
-      df[col] = df[col] * scale
+      if col in df.columns:
+        df[col] = df[col] * scale
+
     return df
   except Exception as e:
     return None
@@ -80,21 +83,27 @@ with tab_chart:
   )
 
   if raw_df is not None and not raw_df.empty:
+    # Reset index so datetime becomes a clean column, then rename safely
+    df = raw_df.reset_index()
+    time_col_name = df.columns[0]  # Usually 'Datetime' or 'Date'
+
     # Heiken Ashi Smoothing Calculation
-    df = raw_df.copy()
     ha_close = (df['Open'] + df['High'] + df['Low'] + df['Close']) / 4.0
     ha_open = [(df['Open'].iloc[0] + df['Close'].iloc[0]) / 2.0]
     for i in range(1, len(df)):
       ha_open.append((ha_open[-1] + ha_close.iloc[i - 1]) / 2.0)
 
-    df['open'] = ha_open
-    df['close'] = ha_close
-    df['high'] = df[['High', 'open', 'close']].max(axis=1)
-    df['low'] = df[['Low', 'open', 'close']].min(axis=1)
+    chart_df = pd.DataFrame({
+        'time': pd.to_datetime(df[time_col_name]).dt.strftime(
+            '%Y-%m-%d %H:%M:%S'
+        ),
+        'open': ha_open,
+        'high': df[['High', 'Open', 'Close']].max(axis=1),
+        'low': df[['Low', 'Open', 'Close']].min(axis=1),
+        'close': ha_close,
+    })
 
-    chart_df = df.reset_index()
-    chart_df['time'] = chart_df['time'].dt.strftime('%Y-%m-%d %H:%M:%S')
-    chart.set(chart_df[['time', 'open', 'high', 'low', 'close']])
+    chart.set(chart_df)
   else:
     st.info('Establishing live session feed connection...')
 
